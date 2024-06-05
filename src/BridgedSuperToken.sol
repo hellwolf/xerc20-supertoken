@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 pragma solidity 0.8.23;
 
+import { Ownable } from '@openzeppelin/contracts/access/Ownable.sol';
 // This abstract contract provides storage padding for the proxy
 import { CustomSuperTokenBase } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/CustomSuperTokenBase.sol";
 // Implementation of UUPSProxy (see https://eips.ethereum.org/EIPS/eip-1822)
@@ -8,7 +9,6 @@ import { UUPSProxy } from "@superfluid-finance/ethereum-contracts/contracts/upgr
 // Superfluid framework interfaces we need
 import { ISuperToken, ISuperTokenFactory, IERC20 } from "@superfluid-finance/ethereum-contracts/contracts/interfaces/superfluid/ISuperfluid.sol";
 import { IXERC20 } from "./interfaces/IXERC20.sol";
-import { Ownable } from '@openzeppelin/contracts/access/Ownable.sol';
 
 /**
  * @title The Proxy contract for a Pure SuperToken with preminted initial supply and with xERC20 support.
@@ -16,8 +16,9 @@ import { Ownable } from '@openzeppelin/contracts/access/Ownable.sol';
 contract BridgedSuperTokenProxy is CustomSuperTokenBase, UUPSProxy, Ownable, IXERC20 {
     /// The duration it takes for the limits to fully replenish
     uint256 internal constant _DURATION = 1 days;
+    uint256 internal constant _MAX_LIMIT = type(uint256).max / 2;
 
-    /// Maps bridge address to bridge configurations
+    /// Maps bridge address to xERC20 bridge configurations
     mapping(address => Bridge) public bridges;
 
     error IXERC20_NoLockBox();
@@ -43,20 +44,45 @@ contract BridgedSuperTokenProxy is CustomSuperTokenBase, UUPSProxy, Ownable, IXE
         ISuperToken(address(this)).selfMint(receiver, initialSupply, "");
     }
 
+    // ===== IXERC20 =====
+
     /// @inheritdoc IXERC20
-    function setLockbox(address _lockbox) external {
-        // no lockbox support
+    function setLockbox(address /*lockbox*/) external pure {
+        // no lockbox support needed
         revert IXERC20_NoLockBox();
     }
 
     /// @inheritdoc IXERC20
-    function setLimits(address bridge, uint256 mintingLimit, uint256 burningLimit) external onlyOwner {
-        if (mintingLimit > (type(uint256).max / 2) || burningLimit > (type(uint256).max / 2)) {
+    function setLimits(address bridge, uint256 mintingLimit, uint256 burningLimit) public onlyOwner {
+        if (mintingLimit > _MAX_LIMIT || burningLimit > _MAX_LIMIT) {
             revert IXERC20_LimitsTooHigh();
         }
         _changeMinterLimit(bridge, mintingLimit);
         _changeBurnerLimit(bridge, burningLimit);
         emit BridgeLimitsSet(mintingLimit, burningLimit, bridge);
+    }
+
+    /// @inheritdoc IXERC20
+    function mint(address user, uint256 amount) public virtual {
+        address bridge = msg.sender;
+        uint256 currentLimit = mintingCurrentLimitOf(bridge);
+        if (currentLimit < amount) revert IXERC20_NotHighEnoughLimits();
+        bridges[bridge].minterParams.timestamp = block.timestamp;
+        bridges[bridge].minterParams.currentLimit = currentLimit - amount;
+        ISuperToken(address(this)).selfMint(user, amount, "");
+    }
+
+    /// @inheritdoc IXERC20
+    function burn(address user, uint256 amount) public virtual {
+        address bridge = msg.sender;
+        uint256 currentLimit = burningCurrentLimitOf(bridge);
+        if (currentLimit < amount) revert IXERC20_NotHighEnoughLimits();
+        bridges[bridge].burnerParams.timestamp = block.timestamp;
+        bridges[bridge].burnerParams.currentLimit = currentLimit - amount;
+        // in order to enforce user allowance limitations, we first transfer to the bridge
+        // (fails if not enough allowance) and then let the bridge burn it.
+        ISuperToken(address(this)).selfTransferFrom(user, bridge, bridge, amount);
+        ISuperToken(address(this)).selfBurn(bridge, amount, "");
     }
 
     /// @inheritdoc IXERC20
@@ -87,29 +113,6 @@ contract BridgedSuperTokenProxy is CustomSuperTokenBase, UUPSProxy, Ownable, IXE
             bridges[bridge].burnerParams.timestamp,
             bridges[bridge].burnerParams.ratePerSecond
         );
-    }
-
-    /// @inheritdoc IXERC20
-    function mint(address user, uint256 amount) external {
-        address bridge = msg.sender;
-        uint256 currentLimit = mintingCurrentLimitOf(bridge);
-        if (currentLimit < amount) revert IXERC20_NotHighEnoughLimits();
-        bridges[bridge].minterParams.timestamp = block.timestamp;
-        bridges[bridge].minterParams.currentLimit = currentLimit - amount;
-        ISuperToken(address(this)).selfMint(user, amount, "");
-    }
-
-    /// @inheritdoc IXERC20
-    function burn(address user, uint256 amount) external {
-        address bridge = msg.sender;
-        uint256 currentLimit = burningCurrentLimitOf(bridge);
-        if (currentLimit < amount) revert IXERC20_NotHighEnoughLimits();
-        bridges[bridge].burnerParams.timestamp = block.timestamp;
-        bridges[bridge].burnerParams.currentLimit = currentLimit - amount;
-        // in order to enforce user allowance limitations, we first transfer to the bridge
-        // (fails if not enough allowance) and then let the bridge burn it.
-        ISuperToken(address(this)).selfTransferFrom(user, bridge, bridge, amount);
-        ISuperToken(address(this)).selfBurn(bridge, amount, "");
     }
 
     // ===== INTERNAL FUNCTIONS =====

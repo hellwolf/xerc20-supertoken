@@ -12,29 +12,26 @@ contract BridgedSuperTokenTest is Test {
     address internal _owner = address(0x42);
     address internal _user = address(0x43);
     address internal _minter = address(0x44);
+    IBridgedSuperToken internal _xerc20;
 
-    IBridgedSuperToken token;
-    IBridgedSuperToken _xerc20; // alias. TODO: remove
-
-    function _deployXERC20(address owner) internal {
+    function _deployToken(address owner) internal virtual {
         // deploy proxy
         BridgedSuperTokenProxy proxy = new BridgedSuperTokenProxy();
         // initialize proxy
         proxy.initialize(sf.superTokenFactory, "Test Token", "TT", _owner, 1000);
         proxy.transferOwnership(owner);
 
-        token = IBridgedSuperToken(address(proxy));
-        _xerc20 = token;
+        _xerc20 = IBridgedSuperToken(address(proxy));
     }
 
-    function setUp() public {
+    function setUp() public virtual {
         // deploy SF framework
         vm.etch(ERC1820RegistryCompiled.at, ERC1820RegistryCompiled.bin);
         SuperfluidFrameworkDeployer deployer = new SuperfluidFrameworkDeployer();
         deployer.deployTestFramework();
         sf = deployer.getFramework();
 
-        _deployXERC20(_owner);
+        _deployToken(_owner);
     }
 
     // Test cases are replicated from the reference XERC20 implementation, with small adjustments
@@ -174,7 +171,7 @@ contract BridgedSuperTokenTest is Test {
         assertEq(_xerc20.burningMaxLimitOf(_user2), _amount2);
     }
 
-    function testchangeBridgeMintingLimitEmitsEvent(uint256 _limit, address _minter) public {
+    function testchangeBridgeMintingLimitEmitsEvent(uint256 _limit) public {
         _limit = bound(_limit, 0, type(uint256).max / 2);
         vm.prank(_owner);
         vm.expectEmit(true, true, true, true);
@@ -182,7 +179,7 @@ contract BridgedSuperTokenTest is Test {
         _xerc20.setLimits(_minter, _limit, 0);
     }
 
-    function testchangeBridgeBurningLimitEmitsEvent(uint256 _limit, address _minter) public {
+    function testchangeBridgeBurningLimitEmitsEvent(uint256 _limit) public {
         _limit = bound(_limit, 0, type(uint256).max / 2);
         vm.prank(_owner);
         vm.expectEmit(true, true, true, true);
@@ -201,9 +198,8 @@ contract BridgedSuperTokenTest is Test {
         assertEq(_xerc20.burningMaxLimitOf(_minter), _amount);
     }
 
-    function testUseLimitsUpdatesLimit(uint256 _limit, address _minter) public {
+    function testUseLimitsUpdatesLimit(uint256 _limit) public {
         _limit = bound(_limit, 1e6, type(uint256).max / 2);
-        vm.assume(_minter != address(0));
         vm.warp(1_683_145_698); // current timestamp at the time of testing
 
         vm.startPrank(_owner);
@@ -221,7 +217,7 @@ contract BridgedSuperTokenTest is Test {
         assertEq(_xerc20.burningCurrentLimitOf(_minter), 0);
     }
 
-    function testCurrentLimitIsMaxLimitIfUnused(uint256 _limit, address _minter) public {
+    function testCurrentLimitIsMaxLimitIfUnused(uint256 _limit) public {
         _limit = bound(_limit, 0, type(uint256).max / 2);
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
@@ -236,11 +232,10 @@ contract BridgedSuperTokenTest is Test {
         assertEq(_xerc20.burningCurrentLimitOf(_minter), _limit);
     }
 
-    function testCurrentLimitIsMaxLimitIfOver24Hours(uint256 _limit, address _minter) public {
+    function testCurrentLimitIsMaxLimitIfOver24Hours(uint256 _limit) public {
         _limit = bound(_limit, 0, type(uint256).max / 2);
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
-        vm.assume(_minter != address(0));
 
         vm.startPrank(_owner);
         _xerc20.setLimits(_minter, _limit, _limit);
@@ -257,9 +252,8 @@ contract BridgedSuperTokenTest is Test {
         assertEq(_xerc20.burningCurrentLimitOf(_minter), _limit);
     }
 
-    function testLimitVestsLinearly(uint256 _limit, address _minter) public {
+    function testLimitVestsLinearly(uint256 _limit) public {
         _limit = bound(_limit, 1e6, type(uint256).max / 2);
-        vm.assume(_minter != address(0));
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
 
@@ -278,10 +272,9 @@ contract BridgedSuperTokenTest is Test {
         assertApproxEqRel(_xerc20.burningCurrentLimitOf(_minter), _limit / 2, 0.1 ether);
     }
 
-    function testOverflowLimitMakesItMax(uint256 _limit, address _minter, uint256 _usedLimit) public {
+    function testOverflowLimitMakesItMax(uint256 _limit, uint256 _usedLimit) public {
         _limit = bound(_limit, 1e6, 100_000_000_000_000e18);
         vm.assume(_usedLimit < 1e3);
-        vm.assume(_minter != address(0));
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
 
@@ -302,13 +295,11 @@ contract BridgedSuperTokenTest is Test {
 
     function testchangeBridgeMintingLimitIncreaseCurrentLimitByTheDifferenceItWasChanged(
         uint256 _limit,
-        address _minter,
         uint256 _usedLimit
     ) public {
         vm.assume(_limit < 1e40);
         vm.assume(_usedLimit < 1e3);
         vm.assume(_limit > _usedLimit);
-        vm.assume(_minter != address(0));
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
 
@@ -331,10 +322,8 @@ contract BridgedSuperTokenTest is Test {
 
     function testchangeBridgeMintingLimitDecreaseCurrentLimitByTheDifferenceItWasChanged(
         uint256 _limit,
-        address _minter,
         uint256 _usedLimit
     ) public {
-        vm.assume(_minter != address(0));
         uint256 _currentTimestamp = 1_683_145_698;
         vm.warp(_currentTimestamp);
         _limit = bound(_limit, 1e15, 1e40);
