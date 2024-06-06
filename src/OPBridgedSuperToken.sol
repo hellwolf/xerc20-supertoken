@@ -5,16 +5,16 @@ import { IOptimismMintableERC20, IERC165 } from "./interfaces/IOptimismMintableE
 import { BridgedSuperTokenProxy, IBridgedSuperToken, IXERC20 } from "./BridgedSuperToken.sol";
 
 /**
- * @ title Extends BridgedSuperTokenProxy with the interface required by the Optimism (Superchain) Standard Bridge
+ * @title Extends BridgedSuperTokenProxy with the interface required by the Optimism (Superchain) Standard Bridge
  */
 contract OPBridgedSuperTokenProxy is BridgedSuperTokenProxy, IOptimismMintableERC20 {
-    address public immutable NATIVE_BRIDGE;
-    address public immutable REMOTE_TOKEN;
+    address internal immutable _NATIVE_BRIDGE;
+    address internal immutable _REMOTE_TOKEN;
 
     // initializes the immutables and sets max limit for the native bridge
     constructor(address nativeBridge_, address remoteToken_) {
-        NATIVE_BRIDGE = nativeBridge_;
-        REMOTE_TOKEN = remoteToken_;
+        _NATIVE_BRIDGE = nativeBridge_;
+        _REMOTE_TOKEN = remoteToken_;
         // the native bridge gets (de facto) unlimited mint/burn allowance
         setLimits(nativeBridge_, _MAX_LIMIT, _MAX_LIMIT);
     }
@@ -23,12 +23,12 @@ contract OPBridgedSuperTokenProxy is BridgedSuperTokenProxy, IOptimismMintableER
 
     /// Returns the address of the corresponding token on the home chain
     function remoteToken() external view returns (address) {
-        return REMOTE_TOKEN;
+        return _REMOTE_TOKEN;
     }
 
     /// Returns the address of the bridge contract
     function bridge() external view returns (address) {
-        return NATIVE_BRIDGE;
+        return _NATIVE_BRIDGE;
     }
 
     /// @inheritdoc IXERC20
