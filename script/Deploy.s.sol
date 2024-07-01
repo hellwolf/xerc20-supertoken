@@ -77,7 +77,7 @@ contract DeployOPToken is DeployBase {
         address remoteToken = vm.envAddress("REMOTE_TOKEN");
 
         OPBridgedSuperTokenProxy proxy = new OPBridgedSuperTokenProxy(nativeBridge, remoteToken);
-        proxy.initialize(ISuperTokenFactory(superTokenFactoryAddr), "OP Test Token", "OTT", owner, initialSupply);
+        proxy.initialize(ISuperTokenFactory(superTokenFactoryAddr), name, symbol, owner, initialSupply);
         proxy.transferOwnership(owner);
         console.log("OPBridgedSuperTokenProxy deployed at", address(proxy));
 
